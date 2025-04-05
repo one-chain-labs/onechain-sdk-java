@@ -1,0 +1,154 @@
+/*
+ * Copyright 2022-2023 281165273grape@gmail.com
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ */
+
+package io.onechain.crypto;
+
+
+import org.apache.commons.lang3.StringUtils;
+import org.bitcoinj.crypto.MnemonicCode;
+import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters;
+import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters;
+
+import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.NavigableSet;
+import java.util.concurrent.ConcurrentSkipListMap;
+
+/**
+ * The type Abstract key store.
+ *
+ * @author chiyu
+ * @since 2022.11
+ */
+public abstract class AbstractKeyStore implements KeyStore {
+
+  /** The Keys. */
+  protected final ConcurrentSkipListMap<String, OneChainKeyPair<?>> keys = new ConcurrentSkipListMap<>();
+
+  @Override
+  public OneChainKeyPair<?> getByAddress(String address) {
+    return this.keys.get(address);
+  }
+
+  @Override
+  public NavigableSet<String> addresses() {
+    return this.keys.navigableKeySet();
+  }
+
+  @Override
+  public abstract void addKey(String address, OneChainKeyPair<?> keyPair);
+
+  /**
+   * Generate new key key response.
+   *
+   * @param schema the schema
+   * @return the key response
+   * @throws SignatureSchemeNotSupportedException the signature scheme not supported exception
+   */
+  @Override
+  public KeyResponse generateNewKey(SignatureScheme schema)
+      throws SignatureSchemeNotSupportedException {
+
+    SecureRandom secureRandom = new SecureRandom();
+    byte[] entropy = new byte[16];
+    secureRandom.nextBytes(entropy);
+    List<String> mnemonic = new ArrayList<>();
+
+    try {
+      mnemonic = MnemonicCode.INSTANCE.toMnemonic(entropy);
+    } catch (Exception e) {
+      // MnemonicLengthException won't happen
+    }
+
+    byte[] seed = MnemonicCode.toSeed(mnemonic, "");
+    OneChainKeyPair<?> keyPair = genSuiKeyPair(seed, schema);
+
+    this.addKey(keyPair.address(), keyPair);
+    return new KeyResponse(StringUtils.join(mnemonic, " "), keyPair.address());
+  }
+
+  public OneChainKeyPair<?> generateNewKeyPair(SignatureScheme schema)
+          throws SignatureSchemeNotSupportedException {
+
+    SecureRandom secureRandom = new SecureRandom();
+    byte[] entropy = new byte[16];
+    secureRandom.nextBytes(entropy);
+    List<String> mnemonic = new ArrayList<>();
+
+    try {
+      mnemonic = MnemonicCode.INSTANCE.toMnemonic(entropy);
+    } catch (Exception e) {
+      // MnemonicLengthException won't happen
+    }
+
+    byte[] seed = MnemonicCode.toSeed(mnemonic, "");
+    OneChainKeyPair<?> keyPair = genSuiKeyPair(seed, schema);
+
+    this.addKey(keyPair.address(), keyPair);
+    return keyPair;
+  }
+
+  /**
+   * Import from mnemonic string.
+   *
+   * @param mnemonic the mnemonic
+   * @param schema the schema
+   * @return the string
+   * @throws SignatureSchemeNotSupportedException the signature scheme not supported exception
+   */
+  @Override
+  public String importFromMnemonic(String mnemonic, SignatureScheme schema)
+      throws SignatureSchemeNotSupportedException {
+    // todo check mnemonic
+
+    byte[] seed = MnemonicCode.toSeed(Arrays.asList(mnemonic.split(" ")), "");
+
+    OneChainKeyPair<?> keyPair = genSuiKeyPair(seed, schema);
+
+    this.addKey(keyPair.address(), keyPair);
+    return keyPair.address();
+  }
+
+  private OneChainKeyPair<?> genSuiKeyPair(byte[] seed, SignatureScheme schema)
+      throws SignatureSchemeNotSupportedException {
+    switch (schema) {
+      case ED25519:
+        return genED25519KeyPair(seed);
+      case Secp256k1:
+        return genSECP256K1KeyPair(seed);
+      default:
+        throw new SignatureSchemeNotSupportedException();
+    }
+  }
+
+  @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
+  private ED25519KeyPair genED25519KeyPair(byte[] seed) {
+    ED25519KeyDerive key = ED25519KeyDerive.createKeyByDefaultPath(seed);
+    Ed25519PrivateKeyParameters parameters = new Ed25519PrivateKeyParameters(key.getKey());
+    Ed25519PublicKeyParameters publicKeyParameters = parameters.generatePublicKey();
+
+    return new ED25519KeyPair(parameters, publicKeyParameters);
+  }
+
+  @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
+  private SECP256K1KeyPair genSECP256K1KeyPair(byte[] seed) {
+    SECP256K1KeyDerive key = SECP256K1KeyDerive.createKeyByDefaultPath(seed);
+
+    return new SECP256K1KeyPair(key.getKey());
+  }
+}
